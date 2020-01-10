@@ -20,6 +20,7 @@
  * This file contains the system call table used by application libraries.
  */
 
+#include <shim_defs.h>
 #include <shim_table.h>
 
 void debug_unsupp(int num) {

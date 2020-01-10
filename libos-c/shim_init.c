@@ -19,6 +19,8 @@
 #include <asm/errno.h>
 #include <elf/elf.h>
 #include <sysdeps/generic/ldsodefs.h>
+#include <shim_defs.h>
+#include <shim_passthru.h>
 
 /* At the begining of entry point, rsp starts at argc, then argvs,
    envps and auxvs. Here we store rsp to rdi, so it will not be
@@ -34,7 +36,7 @@ __asm__ (".global shim_start \n"
 /* shim_start is the entry point of libsyscall.so */
 #define _ENTRY shim_start
 
-static int pagesz = PRESET_PAGESIZE;
+static int pagesz = PAGESIZE;
 static int uid, gid;
 #if USE_VDSO_GETTIME == 1
 static ElfW(Addr) sysinfo_ehdr;

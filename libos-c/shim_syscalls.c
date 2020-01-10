@@ -24,6 +24,7 @@
 #include <asm/prctl.h>
 #include <asm/unistd.h>
 #include <errno.h>
+#include <shim_defs.h>
 #include <shim_table.h>
 #include <shim_syscalls.h>
 

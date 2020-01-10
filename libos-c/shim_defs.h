@@ -2,16 +2,9 @@
 #define _SHIM_DEFS_H_
 
 #define SYSCALLNR  340
-
-#ifdef __x86_64__
-# include "sysdep-x86_64.h"
-#endif
-
-#define IS_ERR INTERNAL_SYSCALL_ERROR
-#define IS_ERR_P INTERNAL_SYSCALL_ERROR_P
-#define ERRNO INTERNAL_SYSCALL_ERRNO
-#define ERRNO_P INTERNAL_SYSCALL_ERRNO_P
-
+#define PAGESIZE   4096
 #define __UNUSED(x) do { (void)(x); } while (0)
-
+#define __attribute_always_inline __attribute__((always_inline))
+#define __attribute_unused __attribute__((unused))
+#define assert(x) do {} while (0)
 #endif

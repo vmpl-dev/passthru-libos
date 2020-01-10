@@ -7,7 +7,8 @@ set(OMIT_FRAME_POINTER ON CACHE BOOL "Omit frame pointer")
 include(../rules.cmake)
 
 string(CONCAT CMAKE_C_FLAGS
-    "-Wall -Wextra -fPIC -std=c11 -Winline -Wwrite-strings "
+    "-Wall -Wextra -O2 -fPIC -std=c11 -U_FORTIFY_SOURCE "
+    "-fno-stack-protector -Winline -Wwrite-strings "
     "-fmerge-all-constants -Wstrict-prototypes -Wtrampolines "
     "-Werror=implicit-function-declaration "
     "-fno-stack-protector -fno-builtin -Wno-inline")
@@ -33,7 +34,9 @@ include_directories(.)
 set(LIBOS_SOURCE
     syscall_trap.S
     shim_table.c
-    shim_syscalls.c)
+    shim_syscalls.c
+    shim_init.c
+    shim_loader.c)
 
 add_library(syscall SHARED
     ${LIBOS_SOURCE}

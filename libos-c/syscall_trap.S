@@ -25,7 +25,7 @@
 
         .global syscall_trap
         .type syscall_trap, @function
-        .extern shim_table, debug_unsupp
+        .extern shim_table
 
 syscall_trap:
         .cfi_startproc
@@ -104,11 +104,6 @@ ret:
         retq
 
 isundef:
-#ifdef DEBUG
-        mov %rax, %rdi
-        andq $~0xF, %rsp  # Required by System V AMD64 ABI.
-        call *debug_unsupp@GOTPCREL(%rip)
-#endif
         movq $-38, %rax  # ENOSYS
         jmp ret
 

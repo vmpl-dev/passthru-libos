@@ -1,0 +1,89 @@
+diff --git a/elf/syscall-trap.S b/elf/syscall-trap.S
+new file mode 120000
+index 0000000..107bd13
+--- /dev/null
++++ b/elf/syscall-trap.S
+@@ -0,0 +1 @@
++../syscall-trap.S
+\ No newline at end of file
+diff --git a/csu/syscall-trap.S b/csu/syscall-trap.S
+new file mode 120000
+index 0000000..107bd13
+--- /dev/null
++++ b/csu/syscall-trap.S
+@@ -0,0 +1 @@
++../syscall-trap.S
+\ No newline at end of file
+diff --git a/syscall-trap.S b/syscall-trap.S
+new file mode 100644
+index 0000000..07c6ffc
+--- /dev/null
++++ b/syscall-trap.S
+@@ -0,0 +1,11 @@
++#include <syscall-trap.h>
++
++.weak syscall_trap
++.type syscall_trap,@function
++
++syscall_trap:
++	.cfi_startproc
++	syscall
++	retq
++	.cfi_endproc
++	.size syscall_trap,.-syscall_trap
+diff --git a/syscall-trap.h b/syscall-trap.h
+new file mode 100644
+index 0000000..2833def
+--- /dev/null
++++ b/syscall-trap.h
+@@ -0,0 +1,42 @@
++#ifndef _SYSCALL_TRAP_H_
++#define _SYSCALL_TRAP_H_
++
++#ifdef __ASSEMBLER__
++# ifdef SHARED
++.weak syscall_trap
++.type syscall_trap, @function
++
++#  if defined(PSEUDO) && defined(SYSCALL_NAME) && defined(SYSCALL_SYMBOL)
++#   define SYSCALL_TRAP                  \
++     subq $128, %rsp;                    \
++     callq *syscall_trap@GOTPCREL(%rip); \
++     addq $128, %rsp
++#  else
++#   define SYSCALL_TRAP                  \
++     callq *syscall_trap@GOTPCREL(%rip)
++#  endif
++# else /* !SHARED */
++#   define SYSCALL_TRAP syscall
++# endif
++
++#else /* !__ASSEMBLER__ */
++# ifdef SHARED
++asm (
++".weak syscall_trap\r\n"
++".type syscall_trap, @function\r\n");
++
++#  define SYSCALL_TRAP                           \
++      "subq $128, %%rsp\n\t"                     \
++      "callq *syscall_trap@GOTPCREL(%%rip)\n\t"  \
++      "addq $128, %%rsp\n\t"
++
++#  define SYSCALL_TRAP_ASM                       \
++      "callq *syscall_trap@GOTPCREL(%rip)\n\t"
++# else /* !SHARED */
++#  define SYSCALL_TRAP     "syscall\n\t"
++#  define SYSCALL_TRAP_ASM "syscall\n\t"
++# endif
++
++#endif /* Assembler */
++
++#endif /* _SYSCALL_TRAP_H_ */
+diff --git a/sysdeps/unix/sysv/linux/x86_64/syscall-trap.h b/sysdeps/unix/sysv/linux/x86_64/syscall-trap.h
+new file mode 120000
+index 0000000..55ab305
+--- /dev/null
++++ b/sysdeps/unix/sysv/linux/x86_64/syscall-trap.h
+@@ -0,0 +1 @@
++../../../../../syscall-trap.h
+\ No newline at end of file

@@ -2,12 +2,6 @@
 #ifndef _ASM_OFFSETS_H_
 #define _ASM_OFFSETS_H_
 
-#ifndef SHIM_TCB_OFFSET
-#define SHIM_TCB_OFFSET 8
-#endif
-#ifndef TCB_REGS
-#define TCB_REGS 24
-#endif
 #ifndef SHIM_REGS_RSP
 #define SHIM_REGS_RSP 8
 #endif
@@ -19,9 +13,6 @@
 #endif
 #ifndef SHIM_REGS_SIZE
 #define SHIM_REGS_SIZE 144
-#endif
-#ifndef RED_ZONE_SIZE
-#define RED_ZONE_SIZE 128
 #endif
 
 #endif

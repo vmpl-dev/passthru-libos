@@ -71,15 +71,11 @@ syscall_trap:
         cmp $0, %rbx
         je isundef
 
-        movq %rbp, %fs:(SHIM_TCB_OFFSET + TCB_REGS)
-
         /* Translating x86_64 kernel calling convention to user-space
          * calling convention */
         movq %r10, %rcx
         andq $~0xF, %rsp  # Required by System V AMD64 ABI.
         call *%rbx
-
-        movq $0, %fs:(SHIM_TCB_OFFSET + TCB_REGS)
 
 ret:
         movq %rbp, %rsp

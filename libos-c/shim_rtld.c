@@ -155,7 +155,7 @@ static int load_link_map(struct link_map* map, int file) {
                 assert(ALIGNED(file_end));
                 mapaddr = (void*)(mapoff + file_end);
                 INLINE_SYSCALL(mmap, 6, mapaddr, end - file_end,
-                               prot, MAP_PRIVATE|MAP_ANONYMOUS, -1, 0);
+                               prot, MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED, -1, 0);
             }
         }
     }

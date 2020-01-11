@@ -19,7 +19,7 @@
 #ifndef _LINUX_X86_64_SYSDEP_H
 #define _LINUX_X86_64_SYSDEP_H 1
 
-#include <sysdeps/generic/sysdep.h>
+#include <sysdep.h>
 
 /* For Linux we can use the system call table in the header file
     /usr/include/asm/unistd.h

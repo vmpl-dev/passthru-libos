@@ -30,13 +30,22 @@ string(CONCAT CMAKE_SHARED_LINKER_FLAGS
     "-Wl,-T,${PROJECT_SOURCE_DIR}/shim.lds")
 
 include_directories(.)
+include_directories(sysdeps/generic)
 
 set(LIBOS_SOURCE
+    stdlib/printfmt.c
+    string/atoi.c
+    string/memcmp.c
+    string/memcpy.c
+    string/memset.c
+    string/strchr.c
+    string/strlen.c
+    string/wordcopy.c
+    printf.c
     syscall_trap.S
     shim_table.c
     shim_syscalls.c
-    shim_init.c
-    shim_loader.c)
+    shim_rtld.c)
 
 add_library(syscall SHARED
     ${LIBOS_SOURCE}

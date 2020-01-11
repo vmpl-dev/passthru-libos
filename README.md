@@ -7,6 +7,8 @@ low-level host system APIs.
 
 The current Passthru library OS is a derivative work the Graphene library OS: <https://github.com/oscarlab/graphene>.
 
+The system is tested on Ubuntu 16.04 x86_64, with the Linux kernel 4.15.0.
+
 ### Code Structure
 
 The Passthru library OS contains several subprojects:
@@ -48,7 +50,7 @@ make
 
 Then, run the test programs with the library OS (working as a loader), along with the patched
 GNU libc given from the commandline:
+
 ```
 ../libos-c/libsyscall.so ../glibc/glibc-install/lib hello
-```
 ```

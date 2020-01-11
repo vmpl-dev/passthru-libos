@@ -21,8 +21,10 @@
 #ifndef _SHIM_SYSCALLS_H_
 #define _SHIM_SYSCALLS_H_
 
+#include <api.h>
 #include <shim_types.h>
 #include <shim_defs.h>
+#include <shim_passthru.h>
 
 #define SHIM_ARG_TYPE long
 
@@ -34,7 +36,7 @@
         return ret;                                         \
     }
 
-#define DEFINE_SHIM_SYSCALL(name, n, func, ...)             \
+#define SHIM_SYSCALL_EMULATED(name, n, func, ...)           \
     SHIM_SYSCALL_##n (name, func, __VA_ARGS__)              \
     EXPORT_SHIM_SYSCALL (name, n, __VA_ARGS__)
 
@@ -227,23 +229,23 @@ void parse_syscall_after (int sysno, const char * name, int nr, ...);
         __UNUSED(__arg6);                       \
     } while (0)
 
-#define DO_SYSCALL(...) DO_SYSCALL2(__VA_ARGS__)
-#define DO_SYSCALL2(n, ...) -ENOSYS
+#define DO_SYSCALL_PASSTHRU(...) DO_SYSCALL_PASSTHRU2(__VA_ARGS__)
+#define DO_SYSCALL_PASSTHRU2(n, ...) syscall##n(__VA_ARGS__)
 
-#define DO_SYSCALL_0(sysno) -ENOSYS
-#define DO_SYSCALL_1(sysno, ...) DO_SYSCALL(1, sysno, SHIM_PASS_ARGS_1)
-#define DO_SYSCALL_2(sysno, ...) DO_SYSCALL(2, sysno, SHIM_PASS_ARGS_2)
-#define DO_SYSCALL_3(sysno, ...) DO_SYSCALL(3, sysno, SHIM_PASS_ARGS_3)
-#define DO_SYSCALL_4(sysno, ...) DO_SYSCALL(4, sysno, SHIM_PASS_ARGS_4)
-#define DO_SYSCALL_5(sysno, ...) DO_SYSCALL(5, sysno, SHIM_PASS_ARGS_5)
-#define DO_SYSCALL_6(sysno, ...) DO_SYSCALL(6, sysno, SHIM_PASS_ARGS_6)
+#define DO_SYSCALL_PASSTHRU_0(sysno) syscall0(sysno)
+#define DO_SYSCALL_PASSTHRU_1(sysno) DO_SYSCALL_PASSTHRU(1, sysno, SHIM_PASS_ARGS_1)
+#define DO_SYSCALL_PASSTHRU_2(sysno) DO_SYSCALL_PASSTHRU(2, sysno, SHIM_PASS_ARGS_2)
+#define DO_SYSCALL_PASSTHRU_3(sysno) DO_SYSCALL_PASSTHRU(3, sysno, SHIM_PASS_ARGS_3)
+#define DO_SYSCALL_PASSTHRU_4(sysno) DO_SYSCALL_PASSTHRU(4, sysno, SHIM_PASS_ARGS_4)
+#define DO_SYSCALL_PASSTHRU_5(sysno) DO_SYSCALL_PASSTHRU(5, sysno, SHIM_PASS_ARGS_5)
+#define DO_SYSCALL_PASSTHRU_6(sysno) DO_SYSCALL_PASSTHRU(6, sysno, SHIM_PASS_ARGS_6)
 
-#define SHIM_SYSCALL_PASSTHROUGH(name, n, ...)                      \
+#define SHIM_SYSCALL_PASSTHRU(name, n, ...)                         \
     BEGIN_SHIM(name, SHIM_PROTO_ARGS_##n)                           \
-        /* printf("WARNING: shim_" #name " not implemented\n"); */  \
+        printf("SYSCALL: " #name "\n");                             \
         SHIM_UNUSED_ARGS_##n();                                     \
-        ret = DO_SYSCALL_##n(__NR_##name);                          \
+        ret = DO_SYSCALL_PASSTHRU_##n(__NR_##name);                 \
     END_SHIM(name)                                                  \
     EXPORT_SHIM_SYSCALL(name, n, __VA_ARGS__)
 
-#endif /* _PAL_SYSCALLS_H_ */
+#endif /* _SHIM_SYSCALLS_H_ */

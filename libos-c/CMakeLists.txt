@@ -43,6 +43,7 @@ set(LIBOS_SOURCE
     string/wordcopy.c
     printf.c
     syscall_trap.S
+    shim_trampoline.c
     shim_table.c
     shim_syscalls.c
     shim_rtld.c)

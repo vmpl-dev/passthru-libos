@@ -66,7 +66,7 @@ syscall_trap:
         cmp $SYSCALLNR, %rax
         jae isundef
 
-        movq shim_table@GOTPCREL(%rip), %rbx
+        leaq shim_table(%rip), %rbx
         movq (%rbx,%rax,8), %rbx
         cmp $0, %rbx
         je isundef

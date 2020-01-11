@@ -41,14 +41,24 @@ void* __load_address_end;
 * without relocation.
 */
 struct link_map {
-    void* base_addr;
-    void* dynamic;
-    void* map_start;
-    void* map_end;
-    void* entry;
+    void*       base_addr;
+    void*       map_start;
+    void*       map_end;
+    void*       entry;
     const char* interp_name;
-    void* phdr_addr;
-    size_t phdr_num;
+    Elf64_Phdr* phdr_addr;
+    size_t      phdr_num;
+    Elf64_Dyn*  dyn_addr;
+    size_t      dyn_num;
+    Elf64_Sym*  symbol_table;
+    const char* string_table;
+    Elf64_Rela* rela_addr;
+    size_t      rela_size;
+    Elf64_Rela* jmprel_addr;
+    size_t      jmprel_size;
+    Elf64_Word* hash_buckets;
+    Elf64_Word  nbuckets;
+    Elf64_Word* hash_chain;
 };
 
 static struct link_map exec_map, interp_map;
@@ -58,6 +68,36 @@ static struct link_map exec_map, interp_map;
 #else
 # define FILEBUF_SIZE 832
 #endif
+
+static uint32_t sysv_hash(const char* str) {
+    const unsigned char* s = (void*)str;
+    uint_fast32_t h = 0;
+    while (*s) {
+        h = 16 * h + *s++;
+        h ^= (h >> 24) & 0xf0;
+    }
+    return h & 0xfffffff;
+}
+
+static Elf64_Sym* find_symbol (struct link_map* map, const char* sym_name) {
+    size_t   namelen = strlen(sym_name);
+    uint32_t hash    = sysv_hash(sym_name);
+
+    if (!map->hash_buckets)
+        return NULL;
+
+    Elf64_Word idx = map->hash_buckets[hash % map->nbuckets];
+
+    for (; idx != STN_UNDEF ; idx = map->hash_chain[idx]) {
+        Elf64_Sym* sym = &map->symbol_table[idx];
+        if (!memcmp(map->string_table + sym->st_name, sym_name, namelen + 1))
+            return sym;
+    }
+
+    return NULL;
+}
+
+extern void syscall_trap(void);
 
 static int load_link_map(struct link_map* map, int file) {
     int ret;
@@ -78,10 +118,12 @@ static int load_link_map(struct link_map* map, int file) {
     for (ph = phdr ; ph < &phdr[ehdr->e_phnum] ; ph++)
         switch (ph->p_type) {
             case PT_DYNAMIC:
-                map->dynamic = (void*)ph->p_vaddr;
+                map->dyn_addr = (void*)ph->p_vaddr;
+                map->dyn_num  = ph->p_memsz / sizeof(Elf64_Dyn);
                 break;
             case PT_INTERP:
                 map->interp_name = (const char*)ph->p_vaddr;
+                break;
             case PT_LOAD: {
                 uintptr_t start = ALIGN_DOWN(ph->p_vaddr);
                 uintptr_t end   = ALIGN_UP(ph->p_vaddr + ph->p_memsz);
@@ -161,12 +203,123 @@ static int load_link_map(struct link_map* map, int file) {
     }
 
     map->base_addr = (void*)mapoff;
-    map->dynamic   = (void*)mapoff + (uintptr_t) map->dynamic;
+    map->dyn_addr  = (Elf64_Dyn*)(mapoff + (uintptr_t) map->dyn_addr);
     map->map_start = (void*)mapoff + mapstart;
     map->map_end   = (void*)mapoff + mapend;
     map->entry     = (void*)mapoff + (uintptr_t) ehdr->e_entry;
-    map->phdr_addr = map->map_start + ehdr->e_phoff;
+    map->phdr_addr = (Elf64_Phdr*)(map->map_start + ehdr->e_phoff);
     map->phdr_num  = ehdr->e_phnum;
+
+    Elf64_Dyn* dyn = map->dyn_addr;
+    for (; dyn < map->dyn_addr + map->dyn_num; ++dyn)
+        switch(dyn->d_tag) {
+            case DT_SYMTAB:
+                map->symbol_table = (Elf64_Sym*) (map->base_addr + dyn->d_un.d_ptr);
+                break;
+            case DT_STRTAB:
+                map->string_table = (const char *) (map->base_addr + dyn->d_un.d_ptr);
+                break;
+            case DT_HASH: {
+                /*
+                 * Structure of DT_HASH:
+                 *  [      nbuckets      ]
+                 *  [       nchain       ]
+                 *  [     buckets[0]     ]
+                 *  [        ...         ]
+                 *  [ buckets[nbucket-1] ]
+                 *  [      chain[0]      ]
+                 *  [        ...         ]
+                 *  [  chain[nchain-1]   ]
+                 */
+                Elf64_Word* hash = (Elf64_Word*) (map->base_addr + dyn->d_un.d_ptr);
+                map->nbuckets = *hash++;
+                hash++;
+                map->hash_buckets = hash;
+                hash += map->nbuckets;
+                map->hash_chain = hash;
+            }
+            case DT_RELA:
+                map->rela_addr = (Elf64_Rela*) (map->base_addr + dyn->d_un.d_ptr);
+                break;
+            case DT_RELASZ:
+                map->rela_size = dyn->d_un.d_val;
+                break;
+            case DT_JMPREL:
+                map->jmprel_addr = (Elf64_Rela*) (map->base_addr + dyn->d_un.d_ptr);
+                break;
+            case DT_PLTRELSZ:
+                map->jmprel_size = dyn->d_un.d_val;
+                break;
+            case DT_REL:
+            case DT_RELCOUNT:
+                printf("ERROR: PAL only supports RELA binaries");
+                break;
+        }
+
+    Elf64_Sym* syscall_symbol = find_symbol(map, "syscall_trap");
+    if (syscall_symbol) {
+        /* Making read-only mappings writable */
+        for (ph = phdr ; ph < &phdr[ehdr->e_phnum] ; ph++) {
+            if (ph->p_type != PT_LOAD)
+                continue;
+            if (ph->p_flags & PF_W)
+                continue;
+
+            void* start = (void*)ALIGN_DOWN(mapoff + ph->p_vaddr);
+            void* end   = (void*)ALIGN_UP(mapoff + ph->p_vaddr + ph->p_memsz);
+
+            int prot = PROT_WRITE;
+            if (ph->p_flags & PF_R)
+                prot |= PROT_READ;
+            if (ph->p_flags & PF_X)
+                prot |= PROT_EXEC;
+
+            INLINE_SYSCALL(mprotect, 3, start, end - start, prot);
+        }
+
+        Elf64_Rela* reloc_ranges[2][2] = {
+            { map->rela_addr,   ((void*)map->rela_addr   + map->rela_size)   },
+            { map->jmprel_addr, ((void*)map->jmprel_addr + map->jmprel_size) },
+        };
+
+        for (int i = 0 ; i < 2 ; i++) {
+            Elf64_Rela* rel = reloc_ranges[i][0];
+            if (!rel)
+                continue;
+
+            for (; rel < reloc_ranges[i][1] ; rel++) {
+                unsigned long r_type = ELF64_R_TYPE(rel->r_info);
+                void** reloc_addr = (void**)(mapoff + rel->r_offset);
+                Elf64_Sym* sym = &map->symbol_table[ELF64_R_SYM(rel->r_info)];
+                if (sym == syscall_symbol) {
+                    assert(r_type == R_X86_64_GLOB_DAT || r_type == R_X86_64_JUMP_SLOT);
+                    printf("replace symbol: %p => %p\n", reloc_addr, syscall_trap);
+                    sym->st_value = (uintptr_t)&syscall_trap - (uint64_t)map->base_addr;
+                    *reloc_addr   = (void*)&syscall_trap;
+                    break;
+                }
+            }
+        }
+
+        /* Reprotecting read-only mappings */
+        for (ph = phdr ; ph < &phdr[ehdr->e_phnum] ; ph++) {
+            if (ph->p_type != PT_LOAD)
+                continue;
+            if (ph->p_flags & PF_W)
+                continue;
+
+            void* start = (void*)ALIGN_DOWN(mapoff + ph->p_vaddr);
+            void* end   = (void*)ALIGN_UP(mapoff + ph->p_vaddr + ph->p_memsz);
+
+            int prot = 0;
+            if (ph->p_flags & PF_R)
+                prot |= PROT_READ;
+            if (ph->p_flags & PF_X)
+                prot |= PROT_EXEC;
+
+            INLINE_SYSCALL(mprotect, 3, start, end - start, prot);
+        }
+    }
 
     return 0;
 }

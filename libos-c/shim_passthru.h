@@ -1,6 +1,7 @@
 #ifndef _SHIM_INTERNAL_H_
 #define _SHIM_INTERNAL_H_
 
+#include <shim_defs.h>
 #include <shim_types.h>
 
 #ifdef __x86_64__

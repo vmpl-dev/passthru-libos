@@ -1,4 +1,3 @@
 SHIM {
-    global: syscall_trap;
     local: *;
 };

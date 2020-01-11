@@ -61,7 +61,7 @@ struct link_map {
     Elf64_Word* hash_chain;
 };
 
-static struct link_map exec_map, interp_map;
+static struct link_map exec_map, interp_map, shim_map;
 
 #if __WORDSIZE == 32
 # define FILEBUF_SIZE 512
@@ -99,16 +99,25 @@ static Elf64_Sym* find_symbol (struct link_map* map, const char* sym_name) {
 
 extern void syscall_trap(void);
 
-static int load_link_map(struct link_map* map, int file) {
+static int load_link_map(struct link_map* map, int file, void* mapped, bool do_reloc) {
     int ret;
 
     char filebuf[FILEBUF_SIZE];
-    ret = INLINE_SYSCALL(pread64, 4, file, filebuf, FILEBUF_SIZE, 0);
-    if (IS_ERR(ret))
-        return ERRNO(ret);
+    const Elf64_Ehdr* ehdr;
+    const Elf64_Phdr* phdr;
 
-    const Elf64_Ehdr* ehdr = (void*)filebuf;
-    const Elf64_Phdr* phdr = (void*)filebuf + ehdr->e_phoff;
+    if (mapped) {
+        ehdr = (void*)mapped;
+        phdr = (void*)mapped + ehdr->e_phoff;
+    } else {
+        ret = INLINE_SYSCALL(pread64, 4, file, filebuf, FILEBUF_SIZE, 0);
+        if (IS_ERR(ret))
+            return ERRNO(ret);
+
+        ehdr = (void*)filebuf;
+        phdr = (void*)filebuf + ehdr->e_phoff;
+    }
+
     const Elf64_Phdr* ph;
     uintptr_t mapstart = (uintptr_t)-1;
     uintptr_t mapend   = (uintptr_t)0;
@@ -140,64 +149,68 @@ static int load_link_map(struct link_map* map, int file) {
 
     uintptr_t mapoff = 0;
 
-    if (ehdr->e_type == ET_DYN) {
-        uintptr_t mapaddr = INLINE_SYSCALL(mmap, 6, NULL, mapend - mapstart,
-                                           PROT_NONE, MAP_PRIVATE|MAP_FILE, file, 0);
-        if (IS_ERR_P(mapaddr))
-            return -ERRNO_P(mapaddr);
-
-        mapoff = mapaddr - mapstart;
+    if (mapped) {
+        mapoff = (uintptr_t)mapped - mapstart;
     } else {
-        uintptr_t mapaddr = INLINE_SYSCALL(mmap, 6, mapstart, mapend - mapstart,
-                                           PROT_NONE, MAP_FIXED|MAP_PRIVATE|MAP_FILE,
-                                           file, 0);
-        if (IS_ERR_P(mapaddr))
-            return -ERRNO_P(mapaddr);
-    }
+        if (ehdr->e_type == ET_DYN) {
+            uintptr_t mapaddr = INLINE_SYSCALL(mmap, 6, NULL, mapend - mapstart,
+                                               PROT_NONE, MAP_PRIVATE|MAP_FILE, file, 0);
+            if (IS_ERR_P(mapaddr))
+                return -ERRNO_P(mapaddr);
 
-    for (ph = phdr ; ph < &phdr[ehdr->e_phnum] ; ph++) {
-        if (ph->p_type != PT_LOAD)
-            continue;
+            mapoff = mapaddr - mapstart;
+        } else {
+            uintptr_t mapaddr = INLINE_SYSCALL(mmap, 6, mapstart, mapend - mapstart,
+                                               PROT_NONE, MAP_FIXED|MAP_PRIVATE|MAP_FILE,
+                                               file, 0);
+            if (IS_ERR_P(mapaddr))
+                return -ERRNO_P(mapaddr);
+        }
 
-        void* start = (void*)ALIGN_DOWN(ph->p_vaddr);
-        void* end = (void*)ph->p_vaddr + ph->p_memsz;
-        void* file_end = (void*)ph->p_vaddr + ph->p_filesz;
-        void* file_end_aligned = (void*)ALIGN_UP(file_end);
-        off_t file_off = ALIGN_DOWN(ph->p_offset);
-        void* mapaddr = (void*)(mapoff + start);
+        for (ph = phdr ; ph < &phdr[ehdr->e_phnum] ; ph++) {
+            if (ph->p_type != PT_LOAD)
+                continue;
 
-        int prot = 0;
-        if (ph->p_flags & PF_R)
-            prot |= PROT_READ;
-        if (ph->p_flags & PF_W)
-            prot |= PROT_WRITE;
-        if (ph->p_flags & PF_X)
-            prot |= PROT_EXEC;
+            void* start = (void*)ALIGN_DOWN(ph->p_vaddr);
+            void* end = (void*)ph->p_vaddr + ph->p_memsz;
+            void* file_end = (void*)ph->p_vaddr + ph->p_filesz;
+            void* file_end_aligned = (void*)ALIGN_UP(file_end);
+            off_t file_off = ALIGN_DOWN(ph->p_offset);
+            void* mapaddr = (void*)(mapoff + start);
 
-        mapaddr = (void*)INLINE_SYSCALL(mmap, 6, mapaddr,
-                                        file_end_aligned - start, prot,
-                                        MAP_PRIVATE|MAP_FILE|MAP_FIXED,
-                                        file, file_off);
-        if (IS_ERR_P(mapaddr))
-            return -ERRNO_P(mapaddr);
+            int prot = 0;
+            if (ph->p_flags & PF_R)
+                prot |= PROT_READ;
+            if (ph->p_flags & PF_W)
+                prot |= PROT_WRITE;
+            if (ph->p_flags & PF_X)
+                prot |= PROT_EXEC;
 
-        if (end > file_end) {
-            /*
-             * If there are remaining bytes at the last page, simply zero
-             * the bytes.
-             */
-            if (file_end < file_end_aligned) {
-                memset((void*)(mapoff + file_end), 0, file_end_aligned - file_end);
-                file_end = file_end_aligned;
-            }
+            mapaddr = (void*)INLINE_SYSCALL(mmap, 6, mapaddr,
+                                            file_end_aligned - start, prot,
+                                            MAP_PRIVATE|MAP_FILE|MAP_FIXED,
+                                            file, file_off);
+            if (IS_ERR_P(mapaddr))
+                return -ERRNO_P(mapaddr);
 
-            /* Allocate free pages for the rest of the section*/
-            if (file_end < end) {
-                end = (void*)ALIGN_UP(end);
-                assert(ALIGNED(file_end));
-                mapaddr = (void*)(mapoff + file_end);
-                INLINE_SYSCALL(mmap, 6, mapaddr, end - file_end,
-                               prot, MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED, -1, 0);
+            if (end > file_end) {
+                /*
+                 * If there are remaining bytes at the last page, simply zero
+                 * the bytes.
+                 */
+                if (file_end < file_end_aligned) {
+                    memset((void*)(mapoff + file_end), 0, file_end_aligned - file_end);
+                    file_end = file_end_aligned;
+                }
+
+                /* Allocate free pages for the rest of the section*/
+                if (file_end < end) {
+                    end = (void*)ALIGN_UP(end);
+                    assert(ALIGNED(file_end));
+                    mapaddr = (void*)(mapoff + file_end);
+                    INLINE_SYSCALL(mmap, 6, mapaddr, end - file_end,
+                                   prot, MAP_PRIVATE|MAP_ANONYMOUS|MAP_FIXED, -1, 0);
+                }
             }
         }
     }
@@ -257,47 +270,60 @@ static int load_link_map(struct link_map* map, int file) {
         }
 
     Elf64_Sym* syscall_symbol = find_symbol(map, "syscall_trap");
-    if (syscall_symbol) {
-        /* Making read-only mappings writable */
-        for (ph = phdr ; ph < &phdr[ehdr->e_phnum] ; ph++) {
-            if (ph->p_type != PT_LOAD)
-                continue;
-            if (ph->p_flags & PF_W)
-                continue;
 
-            void* start = (void*)ALIGN_DOWN(mapoff + ph->p_vaddr);
-            void* end   = (void*)ALIGN_UP(mapoff + ph->p_vaddr + ph->p_memsz);
+    /* Making read-only mappings writable */
+    for (ph = phdr ; ph < &phdr[ehdr->e_phnum] ; ph++) {
+        if (ph->p_type != PT_LOAD)
+            continue;
+        if (ph->p_flags & PF_W)
+            continue;
 
-            int prot = PROT_WRITE;
-            if (ph->p_flags & PF_R)
-                prot |= PROT_READ;
-            if (ph->p_flags & PF_X)
-                prot |= PROT_EXEC;
+        void* start = (void*)ALIGN_DOWN(mapoff + ph->p_vaddr);
+        void* end   = (void*)ALIGN_UP(mapoff + ph->p_vaddr + ph->p_memsz);
 
-            INLINE_SYSCALL(mprotect, 3, start, end - start, prot);
-        }
+        int prot = PROT_WRITE;
+        if (ph->p_flags & PF_R)
+            prot |= PROT_READ;
+        if (ph->p_flags & PF_X)
+            prot |= PROT_EXEC;
 
-        Elf64_Rela* reloc_ranges[2][2] = {
-            { map->rela_addr,   ((void*)map->rela_addr   + map->rela_size)   },
-            { map->jmprel_addr, ((void*)map->jmprel_addr + map->jmprel_size) },
-        };
+        INLINE_SYSCALL(mprotect, 3, start, end - start, prot);
+    }
 
-        for (int i = 0 ; i < 2 ; i++) {
-            Elf64_Rela* rel = reloc_ranges[i][0];
-            if (!rel)
-                continue;
+    Elf64_Rela* reloc_ranges[2][2] = {
+        { map->rela_addr,   ((void*)map->rela_addr   + map->rela_size)   },
+        { map->jmprel_addr, ((void*)map->jmprel_addr + map->jmprel_size) },
+    };
 
-            for (; rel < reloc_ranges[i][1] ; rel++) {
-                unsigned long r_type = ELF64_R_TYPE(rel->r_info);
-                void** reloc_addr = (void**)(mapoff + rel->r_offset);
-                Elf64_Sym* sym = &map->symbol_table[ELF64_R_SYM(rel->r_info)];
-                if (sym == syscall_symbol) {
-                    assert(r_type == R_X86_64_GLOB_DAT || r_type == R_X86_64_JUMP_SLOT);
-                    printf("replace symbol: %p => %p\n", reloc_addr, syscall_trap);
-                    sym->st_value = (uintptr_t)&syscall_trap - (uint64_t)map->base_addr;
-                    *reloc_addr   = (void*)&syscall_trap;
+    for (int i = 0 ; i < 2 ; i++) {
+        Elf64_Rela* rel = reloc_ranges[i][0];
+        if (!rel)
+            continue;
+
+        for (; rel < reloc_ranges[i][1] ; rel++) {
+            unsigned long r_type = ELF64_R_TYPE(rel->r_info);
+            void** reloc_addr = (void**)(mapoff + rel->r_offset);
+            Elf64_Sym* sym = &map->symbol_table[ELF64_R_SYM(rel->r_info)];
+            switch(r_type) {
+                case R_X86_64_GLOB_DAT:
+                case R_X86_64_JUMP_SLOT:
+                    if (syscall_symbol && sym == syscall_symbol) {
+                        sym->st_value = (uintptr_t)&syscall_trap - (uint64_t)map->base_addr;
+                        *reloc_addr   = (void*)&syscall_trap;
+                    }
                     break;
-                }
+                case R_X86_64_64:
+                case R_X86_64_32:
+                    if (do_reloc)
+                        *reloc_addr = (void*)(mapoff + sym->st_value + rel->r_addend);
+                    break;
+                case R_X86_64_RELATIVE:
+                    if (do_reloc)
+                        *reloc_addr = (void*)(mapoff + rel->r_addend);
+                    break;
+                default:
+                    /* ignore other relocation type */
+                    break;
             }
         }
 
@@ -337,12 +363,12 @@ static int load_link_map_by_path(struct link_map* map, const char* dir_path,
     if (IS_ERR(fd))
         return -ERRNO(fd);
 
-    int ret = load_link_map(map, fd);
+    int ret = load_link_map(map, fd, NULL, false);
     INLINE_SYSCALL(close, 1, fd);
     return ret;
 }
 
-int init_loader(const char* exec_path, const char* libc_location) {
+int load_executable(const char* exec_path, const char* libc_location) {
     int ret = load_link_map_by_path(&exec_map, NULL, exec_path);
     if (ret < 0)
         return ret;
@@ -412,6 +438,8 @@ __asm__ (
     "  call shim_main \n"
 );
 
+void shim_start(void);
+
 void shim_main(void* args) {
     /*
      * fetch arguments and environment variables, the previous stack
@@ -435,7 +463,8 @@ void shim_main(void* args) {
     int argc = (uintptr_t) all_args[0];
     const char ** argv = &all_args[1];
     const char ** envp = argv + argc + 1;
-    int uid, gid;
+    void* entry_addr = NULL;
+    int ret;
 
     /* fetch environment information from aux vectors */
     const char ** e = envp;
@@ -446,19 +475,21 @@ void shim_main(void* args) {
     elf_auxv_t* av;
     for (av = auxp; av->a_type != AT_NULL; av++)
         switch (av->a_type) {
-            case AT_UID:
-            case AT_EUID:
-                uid ^= av->a_un.a_val;
-                break;
-            case AT_GID:
-            case AT_EGID:
-                gid ^= av->a_un.a_val;
+            case AT_ENTRY:
+                entry_addr = (void*)av->a_un.a_val;
                 break;
         }
 
+    void* base_addr = (void*)((uintptr_t)entry_addr - (uintptr_t)&shim_start);
     const char* loader_name   = (argv++)[0];
     const char* libc_location = (argv++)[0];
     const char* errstring = NULL;
+
+    ret = load_link_map(&shim_map, -1, base_addr, true);
+    if (ret < 0) {
+        errstring = "Failed to recognize the binary of the library OS";
+        goto init_fail;
+    }
 
     if (!loader_name) {
         errstring = "Something wrong with the command-line?";
@@ -470,7 +501,7 @@ void shim_main(void* args) {
         goto init_fail;
     }
 
-    int ret = init_loader(argv[0], libc_location);
+    ret = load_executable(argv[0], libc_location);
     if (ret < 0) {
         errstring = "Unable to load the executable or the interpreter";
         goto init_fail;

@@ -215,10 +215,11 @@ static int load_link_map(struct link_map* map, int file, void* mapped, bool do_r
     }
 
     map->base_addr = (void*)mapoff;
-    map->dyn_addr  = (Elf64_Dyn*)(mapoff + (uintptr_t) map->dyn_addr);
+    map->dyn_addr  = (Elf64_Dyn*)(mapoff + (uintptr_t)map->dyn_addr);
+    map->interp_name = map->interp_name ? (void*)(mapoff + (uintptr_t)map->interp_name): NULL;
     map->map_start = (void*)mapoff + mapstart;
     map->map_end   = (void*)mapoff + mapend;
-    map->entry     = (void*)mapoff + (uintptr_t) ehdr->e_entry;
+    map->entry     = (void*)mapoff + (uintptr_t)ehdr->e_entry;
     map->phdr_addr = (Elf64_Phdr*)(map->map_start + ehdr->e_phoff);
     map->phdr_num  = ehdr->e_phnum;
 

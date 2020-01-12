@@ -5,7 +5,6 @@ ENTRY(shim_start)
 SECTIONS
 {
   /* Read-only sections, merged into text segment; */
-  __load_address = .;
   . = SEGMENT_START("text-segment", 0) + SIZEOF_HEADERS;
   .note.gnu.build-id : { *(.note.gnu.build-id) }
   .hash          : { *(.hash) }
@@ -43,16 +42,10 @@ SECTIONS
   .text :
   {
     /* the rest of text segments */
-    __code_address = .;
+    code_start = .;
     *(.text .stub .text.*);
     . = ALIGN(8);
-    __cp_name = .;
-    SORT(*)(SORT(.cp_name.*));
-    __cp_func = .;
-    SORT(*)(SORT(.cp_func.*));
-    __rs_func = .;
-    SORT(*)(SORT(.rs_func.*));
-    __code_address_end = .;
+    code_end = .;
   }
   .fini          : { *(.fini) }
   .rodata :
@@ -84,7 +77,6 @@ SECTIONS
     *(.bss .bss.*)
     *(COMMON)
   }
-  __load_address_end = .;
   . = DATA_SEGMENT_END(.);
 }
 

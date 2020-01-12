@@ -32,8 +32,7 @@
 #include <asm/mman.h>
 #include <linux/fcntl.h>
 
-void* __load_address;
-void* __load_address_end;
+extern unsigned char code_start, code_end;
 
 /*
 * This structure is similar to glibc's link_map, but only contains
@@ -439,6 +438,7 @@ __asm__ (
 );
 
 void shim_start(void);
+int install_seccomp_filter(void* start, void* end);
 
 void shim_main(void* args) {
     /*
@@ -490,6 +490,9 @@ void shim_main(void* args) {
         errstring = "Failed to recognize the binary of the library OS";
         goto init_fail;
     }
+
+    if ((ret = install_seccomp_filter(&code_start, &code_end)) < 0)
+        goto init_fail;
 
     if (!loader_name) {
         errstring = "Something wrong with the command-line?";

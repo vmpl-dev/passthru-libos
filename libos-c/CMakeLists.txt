@@ -44,6 +44,8 @@ set(LIBOS_SOURCE
     printf.c
     syscall_trap.S
     shim_trampoline.c
+    filter.c
+    bpf-helper.c
     shim_table.c
     shim_syscalls.c
     shim_rtld.c)

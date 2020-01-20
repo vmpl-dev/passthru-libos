@@ -1,0 +1,110 @@
+diff -ruNp old/elf/dl-close.c new/elf/dl-close.c
+--- old/elf/dl-close.c	2020-01-18 17:34:26.194391733 -0600
++++ new/elf/dl-close.c	2020-01-18 17:35:28.086497176 -0600
+@@ -489,6 +489,7 @@ _dl_close_worker (struct link_map *map,
+   /* Notify the debugger we are about to remove some loaded objects.  */
+   struct r_debug *r = _dl_debug_initialize (0, nsid);
+   r->r_state = RT_DELETE;
++  gdb_trap(r);
+   _dl_debug_state ();
+   LIBC_PROBE (unmap_start, 2, nsid, r);
+ 
+@@ -790,6 +791,7 @@ _dl_close_worker (struct link_map *map,
+ 
+   /* Notify the debugger those objects are finalized and gone.  */
+   r->r_state = RT_CONSISTENT;
++  gdb_trap(r);
+   _dl_debug_state ();
+   LIBC_PROBE (unmap_complete, 2, nsid, r);
+ 
+diff -ruNp old/elf/dl-debug.c new/elf/dl-debug.c
+--- old/elf/dl-debug.c	2020-01-18 17:34:26.194391733 -0600
++++ new/elf/dl-debug.c	2020-01-18 17:49:55.923976249 -0600
+@@ -73,3 +73,11 @@ _dl_debug_state (void)
+ {
+ }
+ rtld_hidden_def (_dl_debug_state)
++
++#ifdef SHARED
++void
++__attribute__((weak))
++gdb_trap (struct r_debug* target)
++{
++}
++#endif
+diff -ruNp old/elf/dl-load.c new/elf/dl-load.c
+--- old/elf/dl-load.c	2020-01-18 17:34:26.194391733 -0600
++++ new/elf/dl-load.c	2020-01-18 17:36:51.902639979 -0600
+@@ -786,6 +786,7 @@ lose (int code, int fd, const char *name
+   if (r != NULL)
+     {
+       r->r_state = RT_CONSISTENT;
++      gdb_trap(r);
+       _dl_debug_state ();
+       LIBC_PROBE (map_failed, 2, nsid, r);
+     }
+@@ -932,6 +933,7 @@ _dl_map_object_from_fd (const char *name
+ 	 call _dl_debug_initialize in a static program in case dynamic
+ 	 linking has not been used before.  */
+       r->r_state = RT_ADD;
++      gdb_trap(r);
+       _dl_debug_state ();
+       LIBC_PROBE (map_start, 2, nsid, r);
+       make_consistent = true;
+diff -ruNp old/elf/dl-open.c new/elf/dl-open.c
+--- old/elf/dl-open.c
++++ new/elf/dl-open.c
+@@ -296,6 +296,7 @@ dl_open_worker (void *a)
+   /* Notify the debugger all new objects are now ready to go.  */
+   struct r_debug *r = _dl_debug_initialize (0, args->nsid);
+   r->r_state = RT_CONSISTENT;
++  gdb_trap(r);
+   _dl_debug_state ();
+   LIBC_PROBE (map_complete, 3, args->nsid, r, new);
+ 
+diff -ruNp old/elf/rtld.c new/elf/rtld.c
+--- old/elf/rtld.c
++++ new/elf/rtld.c
+@@ -1586,6 +1586,7 @@ ERROR: ld.so: object '%s' cannot be load
+ 
+   /* We start adding objects.  */
+   r->r_state = RT_ADD;
++  gdb_trap(r);
+   _dl_debug_state ();
+   LIBC_PROBE (init_start, 2, LM_ID_BASE, r);
+ 
+@@ -2283,6 +2284,7 @@ ERROR: ld.so: object '%s' cannot be load
+      the address since by now the variable might be in another object.  */
+   r = _dl_debug_initialize (0, LM_ID_BASE);
+   r->r_state = RT_CONSISTENT;
++  gdb_trap(r);
+   _dl_debug_state ();
+   LIBC_PROBE (init_complete, 2, LM_ID_BASE, r);
+ 
+diff -ruNp old/elf/Versions new/elf/Versions
+--- old/elf/Versions
++++ new/elf/Versions
+@@ -41,6 +41,7 @@ ld {
+     _r_debug;
+ 
+     syscall_trap;
++    gdb_trap;
+   }
+   GLIBC_2.1 {
+     # functions used in other libraries
+diff -ruNp old/sysdeps/generic/ldsodefs.h new/sysdeps/generic/ldsodefs.h
+--- old/sysdeps/generic/ldsodefs.h
++++ new/sysdeps/generic/ldsodefs.h
+@@ -974,6 +974,12 @@ extern void _dl_sort_maps (struct link_m
+ extern void _dl_debug_state (void);
+ rtld_hidden_proto (_dl_debug_state)
+ 
++# ifdef SHARED
++extern void gdb_trap (struct r_debug* target) __attribute__((weak));
++# else
++#  define gdb_trap(r) do {} while (0)
++# endif
++
+ /* Initialize `struct r_debug' if it has not already been done.  The
+    argument is the run-time load address of the dynamic linker, to be put
+    in the `r_ldbase' member.  Returns the address of the structure.  */

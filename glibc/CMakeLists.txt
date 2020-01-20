@@ -13,7 +13,7 @@ set(GLIBC_MIRRORS
 
 set(GLIBC_VERSION 2.27 CACHE STRING "GLIBC version")
 set(GLIBC_NAME glibc-${GLIBC_VERSION})
-set(GLIBC_CFLAGS "-O2 -U_FORTIFY_SOURCE -Wno-unused-value")
+set(GLIBC_CFLAGS "-gdwarf-2 -g3 -O2 -U_FORTIFY_SOURCE -Wno-unused-value")
 set(GLIBC_CONFIGURE_OPTIONS --with-tls --without-selinux
     --disable-test --disable-nscd --disable-sanity-checks)
 separate_arguments(GLIBC_CONFIGURE_OPTIONS)
@@ -28,6 +28,7 @@ endif()
 
 set(GLIBC_COMMON_PATCHES
     glibc-patches/${GLIBC_NAME}.patch
+    glibc-patches/${GLIBC_NAME}-debug.patch
     glibc-patches/syscall-trap.patch)
 
 if(EXISTS ${PROJECT_SOURCE_DIR}/${GLIBC_NAME}.cmake)

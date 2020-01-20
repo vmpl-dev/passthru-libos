@@ -60,6 +60,8 @@ struct link_map {
     Elf64_Word* hash_chain;
 };
 
+char interp_name[256];
+
 static struct link_map exec_map, interp_map, shim_map;
 
 #if __WORDSIZE == 32
@@ -97,6 +99,7 @@ static Elf64_Sym* find_symbol (struct link_map* map, const char* sym_name) {
 }
 
 extern void syscall_trap(void);
+extern void gdb_trap(void);
 
 static int load_link_map(struct link_map* map, int file, void* mapped, bool do_reloc) {
     int ret;
@@ -269,7 +272,18 @@ static int load_link_map(struct link_map* map, int file, void* mapped, bool do_r
                 break;
         }
 
-    Elf64_Sym* syscall_symbol = find_symbol(map, "syscall_trap");
+    struct {
+        const char* name; void* addr; Elf64_Sym* sym;
+    } trap_symbols[] = {
+        { "syscall_trap",    &syscall_trap,        NULL },
+        { "gdb_trap",        &gdb_trap,            NULL },
+    };
+    int ntraps = sizeof(trap_symbols) / sizeof(trap_symbols[0]);
+
+    if (!do_reloc) {
+        for (int i = 0; i < ntraps; i++)
+            trap_symbols[i].sym = find_symbol(map, trap_symbols[i].name);
+    }
 
     /* Making read-only mappings writable */
     for (ph = phdr ; ph < &phdr[ehdr->e_phnum] ; ph++) {
@@ -307,9 +321,14 @@ static int load_link_map(struct link_map* map, int file, void* mapped, bool do_r
             switch(r_type) {
                 case R_X86_64_GLOB_DAT:
                 case R_X86_64_JUMP_SLOT:
-                    if (syscall_symbol && sym == syscall_symbol) {
-                        sym->st_value = (uintptr_t)&syscall_trap - (uint64_t)map->base_addr;
-                        *reloc_addr   = (void*)&syscall_trap;
+                    if (do_reloc) {
+                        *reloc_addr = (void*)(mapoff + sym->st_value);
+                    } else {
+                        for (int i = 0; i < ntraps; i++)
+                            if (sym && sym == trap_symbols[i].sym) {
+                                sym->st_value = (Elf64_Addr)trap_symbols[i].addr - (Elf64_Addr)map->base_addr;
+                                *reloc_addr   = trap_symbols[i].addr;
+                            }
                     }
                     break;
                 case R_X86_64_64:
@@ -326,25 +345,25 @@ static int load_link_map(struct link_map* map, int file, void* mapped, bool do_r
                     break;
             }
         }
+    }
 
-        /* Reprotecting read-only mappings */
-        for (ph = phdr ; ph < &phdr[ehdr->e_phnum] ; ph++) {
-            if (ph->p_type != PT_LOAD)
-                continue;
-            if (ph->p_flags & PF_W)
-                continue;
+    /* Reprotecting read-only mappings */
+    for (ph = phdr ; ph < &phdr[ehdr->e_phnum] ; ph++) {
+        if (ph->p_type != PT_LOAD)
+            continue;
+        if (ph->p_flags & PF_W)
+            continue;
 
-            void* start = (void*)ALIGN_DOWN(mapoff + ph->p_vaddr);
-            void* end   = (void*)ALIGN_UP(mapoff + ph->p_vaddr + ph->p_memsz);
+        void* start = (void*)ALIGN_DOWN(mapoff + ph->p_vaddr);
+        void* end   = (void*)ALIGN_UP(mapoff + ph->p_vaddr + ph->p_memsz);
 
-            int prot = 0;
-            if (ph->p_flags & PF_R)
-                prot |= PROT_READ;
-            if (ph->p_flags & PF_X)
-                prot |= PROT_EXEC;
+        int prot = 0;
+        if (ph->p_flags & PF_R)
+            prot |= PROT_READ;
+        if (ph->p_flags & PF_X)
+            prot |= PROT_EXEC;
 
-            INLINE_SYSCALL(mprotect, 3, start, end - start, prot);
-        }
+        INLINE_SYSCALL(mprotect, 3, start, end - start, prot);
     }
 
     return 0;
@@ -374,9 +393,8 @@ int load_executable(const char* exec_path, const char* libc_location) {
         return ret;
 
     if (exec_map.interp_name) {
-        const char* interp_name = exec_map.interp_name;
-        const char* filename = interp_name + strlen(interp_name) - 1;
-        while (filename > interp_name &&*filename != '/')
+        const char* filename = exec_map.interp_name + strlen(exec_map.interp_name) - 1;
+        while (filename > exec_map.interp_name && *filename != '/')
             filename--;
         if (*filename == '/')
             filename++;
@@ -385,6 +403,14 @@ int load_executable(const char* exec_path, const char* libc_location) {
         ret = load_link_map_by_path(&interp_map, libc_location, filename);
         if (ret < 0)
             return ret;
+
+        int l1 = strlen(libc_location);
+        int l2 = strlen(filename);
+        assert(l1 + l2 + 1 < sizeof(interp_name));
+        memcpy(interp_name, libc_location, l1);
+        interp_name[l1] = '/';
+        memcpy(interp_name + l1 + 1, filename, l2);
+        interp_name[l1 + l2 + 1] = '\0';
     }
 
     return 0;
@@ -440,6 +466,10 @@ __asm__ (
 
 void shim_start(void);
 int install_seccomp_filter(void* start, void* end);
+
+void init_debugger(Elf64_Addr loader_base, const char* loader_name, Elf64_Dyn* loader_dyn,
+                   Elf64_Addr exec_base, const char* exec_name, Elf64_Dyn* exec_dyn,
+                   Elf64_Addr interp_base, const char* interp_name, Elf64_Dyn* interp_dyn);
 
 void shim_main(void* args) {
     /*
@@ -511,13 +541,17 @@ void shim_main(void* args) {
         goto init_fail;
     }
 
+    init_debugger((Elf64_Addr)base_addr, loader_name, shim_map.dyn_addr,
+                  (Elf64_Addr)exec_map.base_addr, argv[0], exec_map.dyn_addr,
+                  (Elf64_Addr)interp_map.base_addr, interp_name, interp_map.dyn_addr);
+
     start_execute(argc, argv, auxp);
 
     /* Should never reach here */
     return;
 
 init_fail:
-    printf("%s", errstring);
+    printf("%s\n", errstring);
     printf("USAGE: %s libc_location executable args ...\n", loader_name);
     INLINE_SYSCALL(exit_group, 1, -1);
 }

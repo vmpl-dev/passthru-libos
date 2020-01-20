@@ -48,7 +48,8 @@ set(LIBOS_SOURCE
     bpf-helper.c
     shim_table.c
     shim_syscalls.c
-    shim_rtld.c)
+    shim_rtld.c
+    shim_debug.c)
 
 add_library(syscall SHARED
     ${LIBOS_SOURCE}

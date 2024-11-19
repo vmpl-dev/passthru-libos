@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.22.1)
 
 project(glibc)
 
@@ -13,7 +13,7 @@ set(GLIBC_MIRRORS
 
 set(GLIBC_VERSION 2.27 CACHE STRING "GLIBC version")
 set(GLIBC_NAME glibc-${GLIBC_VERSION})
-set(GLIBC_CFLAGS "-gdwarf-2 -g3 -O2 -U_FORTIFY_SOURCE -Wno-unused-value")
+set(GLIBC_CFLAGS "-gdwarf-2 -g3 -O2 -U_FORTIFY_SOURCE -Wno-unused-value -Wno-error=array-parameter= -Wno-error=stringop-overflow=")
 set(GLIBC_CONFIGURE_OPTIONS --with-tls --without-selinux
     --disable-test --disable-nscd --disable-sanity-checks)
 separate_arguments(GLIBC_CONFIGURE_OPTIONS)

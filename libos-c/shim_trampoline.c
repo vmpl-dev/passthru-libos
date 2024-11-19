@@ -21,114 +21,82 @@
  */
 
 #include <shim_trampoline.h>
+#include <syscall_arch.h>
 
-long int _syscall6(long int sys_no, long int __arg1, long int __arg2,
-                   long int __arg3, long int __arg4, long int __arg5,
-                   long int __arg6)
+#if __GCC__ >= 12
+#define vmgexit "vmgexit"
+#else
+#define vmgexit "rep; vmmcall"
+#endif
+
+long int _syscall0(long n)
 {
-    unsigned long int resultvar;
-    register long int _a6 __asm__ ("r9")  = __arg6;
-    register long int _a5 __asm__ ("r8")  = __arg5;
-    register long int _a4 __asm__ ("r10") = __arg4;
-    register long int _a3 __asm__ ("rdx") = __arg3;
-    register long int _a2 __asm__ ("rsi") = __arg2;
-    register long int _a1 __asm__ ("rdi") = __arg1;
-
-    __asm__ __volatile__ ("syscall\n\t"
-                          : "=a" (resultvar)
-                          : "0" (sys_no), "r"(_a1), "r"(_a2), "r"(_a3), "r"(_a4), "r"(_a5), "r"(_a6)
-                          : "memory", "cc", "r11", "cx");
-
-    return (long int) resultvar;
-
+	unsigned long ret;
+	__syscall_wrapper(__volatile__(vmgexit : "=a"(ret) : "a"(n) : "rcx", "r11", "memory"),
+					 __volatile__("syscall" : "=a"(ret) : "a"(n) : "rcx", "r11", "memory"));
+	return ret;
 }
 
-long int _syscall5(long int sys_no, long int __arg1, long int __arg2,
-                   long int __arg3, long int __arg4, long int __arg5)
+long int _syscall1(long n, long a1)
 {
-    unsigned long int resultvar;
-    register long int _a5 __asm__ ("r8")  = __arg5;
-    register long int _a4 __asm__ ("r10") = __arg4;
-    register long int _a3 __asm__ ("rdx") = __arg3;
-    register long int _a2 __asm__ ("rsi") = __arg2;
-    register long int _a1 __asm__ ("rdi") = __arg1;
-
-    __asm__ __volatile__ ("syscall\n\t"
-                          : "=a" (resultvar)
-                          : "0" (sys_no), "r"(_a1), "r"(_a2), "r"(_a3), "r"(_a4), "r"(_a5)
-                          : "memory", "cc", "r11", "cx");
-
-    return (long int) resultvar;
-
+	unsigned long ret;
+	__syscall_wrapper(__volatile__(vmgexit : "=a"(ret) : "a"(n), "D"(a1) : "rcx", "r11", "memory"),
+					 __volatile__("syscall" : "=a"(ret) : "a"(n), "D"(a1) : "rcx", "r11", "memory"));
+	return ret;
 }
 
-long int _syscall4(long int sys_no, long int __arg1, long int __arg2,
-                   long int __arg3, long int __arg4)
+long int _syscall2(long n, long a1, long a2)
 {
-    unsigned long int resultvar;
-    register long int _a4 __asm__ ("r10") = __arg4;
-    register long int _a3 __asm__ ("rdx") = __arg3;
-    register long int _a2 __asm__ ("rsi") = __arg2;
-    register long int _a1 __asm__ ("rdi") = __arg1;
-
-    __asm__ __volatile__ ("syscall\n\t"
-                          : "=a" (resultvar)
-                          : "0" (sys_no), "r"(_a1), "r"(_a2), "r"(_a3), "r"(_a4)
-                          : "memory", "cc", "r11", "cx");
-
-    return (long int) resultvar;
+	unsigned long ret;
+	__syscall_wrapper(__volatile__(vmgexit : "=a"(ret) : "a"(n), "D"(a1), "S"(a2)
+								   : "rcx", "r11", "memory"),
+					  __volatile__("syscall" : "=a"(ret) : "a"(n), "D"(a1), "S"(a2)
+								   : "rcx", "r11", "memory"));
+	return ret;
 }
 
-long int _syscall3(long int sys_no, long int __arg1, long int __arg2,
-                   long int __arg3)
+long int _syscall3(long n, long a1, long a2, long a3)
 {
-    unsigned long int resultvar;
-    register long int _a3 __asm__ ("rdx") = __arg3;
-    register long int _a2 __asm__ ("rsi") = __arg2;
-    register long int _a1 __asm__ ("rdi") = __arg1;
-
-    __asm__ __volatile__ ("syscall\n\t"
-                          : "=a" (resultvar)
-                          : "0" (sys_no), "r"(_a1), "r"(_a2), "r"(_a3)
-                          : "memory", "cc", "r11", "cx");
-
-    return (long int) resultvar;
+	unsigned long ret;
+	__syscall_wrapper(__volatile__(vmgexit : "=a"(ret) : "a"(n), "D"(a1), "S"(a2),
+														   "d"(a3) : "rcx", "r11", "memory"),
+					  __volatile__("syscall" : "=a"(ret) : "a"(n), "D"(a1), "S"(a2),
+														   "d"(a3) : "rcx", "r11", "memory"));
+	return ret;
 }
 
-long int _syscall2(long int sys_no, long int __arg1, long int __arg2)
+long int _syscall4(long n, long a1, long a2, long a3, long a4)
 {
-    unsigned long int resultvar;
-    register long int _a2 __asm__ ("rsi") = __arg2;
-    register long int _a1 __asm__ ("rdi") = __arg1;
-
-    __asm__ __volatile__ ("syscall\n\t"
-                          : "=a" (resultvar)
-                          : "0" (sys_no), "r"(_a1), "r"(_a2)
-                          : "memory", "cc", "r11", "cx");
-
-    return (long int) resultvar;
+	unsigned long ret;
+	register long r10 __asm__("r10") = a4;
+	__syscall_wrapper(__volatile__(vmgexit : "=a"(ret) : "a"(n), "D"(a1), "S"(a2),
+														   "d"(a3), "r"(r10) : "rcx", "r11", "memory"),
+					  __volatile__("syscall" : "=a"(ret) : "a"(n), "D"(a1), "S"(a2),
+														   "d"(a3), "r"(r10) : "rcx", "r11", "memory"));
+	return ret;
 }
 
-long int _syscall1(long int sys_no, long int __arg1)
+long int _syscall5(long n, long a1, long a2, long a3, long a4, long a5)
 {
-    unsigned long int resultvar;
-    register long int _a1 __asm__ ("rdi") = __arg1;
-
-    __asm__ __volatile__ ("syscall\n\t"
-                          : "=a" (resultvar)
-                          : "0"(sys_no), "r"(_a1)
-                          : "memory", "cc", "r11", "cx");
-
-    return (long int) resultvar;
+	unsigned long ret;
+	register long r10 __asm__("r10") = a4;
+	register long r8 __asm__("r8") = a5;
+	__syscall_wrapper(__volatile__(vmgexit : "=a"(ret) : "a"(n), "D"(a1), "S"(a2),
+														   "d"(a3), "r"(r10), "r"(r8) : "rcx", "r11", "memory"),
+					  __volatile__("syscall" : "=a"(ret) : "a"(n), "D"(a1), "S"(a2),
+														   "d"(a3), "r"(r10), "r"(r8) : "rcx", "r11", "memory"));
+	return ret;
 }
 
-long int _syscall0(long int sys_no)
+long int _syscall6(long n, long a1, long a2, long a3, long a4, long a5, long a6)
 {
-    unsigned long int resultvar;
-    __asm__ __volatile__ ("syscall\n\t"
-                          : "=a" (resultvar)
-                          : "0"(sys_no)
-                          : "memory", "cc", "r11", "cx");
-
-    return (long int) resultvar;
+	unsigned long ret;
+	register long r10 __asm__("r10") = a4;
+	register long r8 __asm__("r8") = a5;
+	register long r9 __asm__("r9") = a6;
+	__syscall_wrapper(__volatile__(vmgexit : "=a"(ret) : "a"(n), "D"(a1), "S"(a2),
+														   "d"(a3), "r"(r10), "r"(r8), "r"(r9) : "rcx", "r11", "memory"),
+					  __volatile__("syscall" : "=a"(ret) : "a"(n), "D"(a1), "S"(a2),
+														   "d"(a3), "r"(r10), "r"(r8), "r"(r9) : "rcx", "r11", "memory"));
+	return ret;
 }

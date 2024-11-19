@@ -30,6 +30,7 @@
 #include <elf.h>
 #include <asm/prctl.h>
 #include <asm/mman.h>
+#include <sys/mman.h>
 #include <linux/fcntl.h>
 
 extern unsigned char code_start, code_end;
